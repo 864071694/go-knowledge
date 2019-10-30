@@ -1,0 +1,197 @@
+package main
+
+import (
+	"database/sql"
+	"fmt"
+	_ "github.com/go-sql-driver/mysql"
+	"time"
+)
+/*
+1. 创建golang_blog数据库
+2. 创建users表并执行下述sql语句
+
+
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ----------------------------
+-- Table structure for users
+-- ----------------------------
+DROP TABLE IF EXISTS `users`;
+CREATE TABLE `users`  (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `name` varchar(20) CHARACTER SET utf8 COLLATE utf8_unicode_ci NULL DEFAULT NULL,
+  `age` int(11) NULL DEFAULT 0,
+  PRIMARY KEY (`id`) USING BTREE
+) ENGINE = InnoDB AUTO_INCREMENT = 1 CHARACTER SET = utf8 COLLATE = utf8_unicode_ci ROW_FORMAT = Dynamic;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+*/
+type User struct {
+	ID   int64          `db:"id"`
+	Name sql.NullString `db:"name"`
+	Age  int            `db:"age"`
+}
+
+const (
+	USERNAME = "root"
+	PASSWORD = "123456"
+	NETWORK  = "tcp"
+	SERVER   = "localhost"
+	PORT     = 3306
+	DATABASE = "golang_blog"
+	CHARSET  = "utf8"
+)
+
+func main() {
+	dsn := fmt.Sprintf("%s:%s@%s(%s:%d)/%s?charset=%s", USERNAME, PASSWORD, NETWORK, SERVER, PORT, DATABASE, CHARSET)
+	DB, err := sql.Open("mysql", dsn)
+	if err != nil {
+		fmt.Printf("Open mysql failed,err:%v\n", err)
+		return
+	}
+	defer DB.Close()
+	DB.SetConnMaxLifetime(100 * time.Second) // 连接过期时间 如不设置 连接会被一直保持
+	DB.SetMaxOpenConns(100) // 最大打开连接数
+	DB.SetMaxIdleConns(16) // 最大空闲连接数
+	//insertData(DB)
+	//queryOne(DB)
+	//queryMulti(DB)
+	//updateData(DB)
+	//deleteData(DB)
+	//prepareData(DB)
+	//shiWu(DB)
+}
+
+//插入数据
+func insertData(DB *sql.DB) {
+	result, err := DB.Exec("insert INTO users(name,age) values(?,?)", "YDZ", 23)
+	if err != nil {
+		fmt.Printf("Insert failed,err:%v", err)
+		return
+	}
+	// result.LastInsertId() 插入的ID
+	lastInsertID, err := result.LastInsertId()
+	if err != nil {
+		fmt.Printf("Get lastInsertID failed,err:%v", err)
+		return
+	}
+	fmt.Println("LastInsertID:", lastInsertID)
+	// result.RowsAffected() 受影响的行数
+	rowsaffected, err := result.RowsAffected()
+	if err != nil {
+		fmt.Printf("Get RowsAffected failed,err:%v", err)
+		return
+	}
+	fmt.Println("RowsAffected:", rowsaffected)
+}
+
+//删除数据
+func deleteData(DB *sql.DB) {
+	result, err := DB.Exec("delete from users where id=?", 2)
+	if err != nil {
+		fmt.Printf("Insert failed,err:%v", err)
+		return
+	}
+	rowsaffected, err := result.RowsAffected()
+	if err != nil {
+		fmt.Printf("Get RowsAffected failed,err:%v", err)
+		return
+	}
+	fmt.Println("RowsAffected:", rowsaffected)
+}
+
+//更新数据
+func updateData(DB *sql.DB) {
+	result, err := DB.Exec("UPDATE users set age=? where id=?", "30", 3)
+	if err != nil {
+		fmt.Printf("Insert failed,err:%v", err)
+		return
+	}
+	rowsaffected, err := result.RowsAffected()
+	if err != nil {
+		fmt.Printf("Get RowsAffected failed,err:%v", err)
+		return
+	}
+	fmt.Println("RowsAffected:", rowsaffected)
+}
+
+//查询单行
+func queryOne(DB *sql.DB) {
+	user := new(User)
+	row := DB.QueryRow("select * from users where id=?", 2)
+	if err := row.Scan(&user.ID, &user.Name, &user.Age); err != nil {
+		fmt.Printf("scan failed, err:%v", err)
+		return
+	}
+	fmt.Println(*user)
+}
+
+//查询多行
+func queryMulti(DB *sql.DB) {
+	user := new(User)
+	rows, err := DB.Query("select * from users where id > ?", 1)
+	defer func() {
+		if rows != nil {
+			rows.Close()
+		}
+	}()
+	if err != nil {
+		fmt.Printf("Query failed,err:%v", err)
+		return
+	}
+	// rows.Next() 迭代查询数据.
+	for rows.Next() {
+		// rows.Scan() 读取每一行的值
+		err = rows.Scan(&user.ID, &user.Name, &user.Age)
+		if err != nil {
+			fmt.Printf("Scan failed,err:%v", err)
+			return
+		}
+		fmt.Print(*user)
+	}
+
+}
+
+//预处理
+func prepareData(DB *sql.DB) {
+	// 预处理查询
+	stmt, _ := DB.Prepare("select id, name from users where id = ? or name = ?")
+	defer stmt.Close()
+	//查找id为3或者name为000的人
+	row4, _ := stmt.Query(1, "YDZ")
+	//注意这⾥需要Next()下，不然下⾯取不到值
+	user := new(User)
+
+	for row4.Next() {
+		row4.Scan(&user.ID, &user.Name)
+		fmt.Println(*user)
+	}
+	//预处理插入
+	stmt2, _ := DB.Prepare("insert into users (name,age) values(?,?)")
+	defer stmt2.Close()
+	rows5, _ := stmt2.Exec("lisi", 22)
+	fmt.Println(rows5.RowsAffected())
+}
+
+// 事务处理
+func shiWu(DB *sql.DB) {
+	//开启事务
+	tx, _ := DB.Begin()
+	//id为1的price+1，id为2的price-1
+	ret4, _ := tx.Exec("update users set age = age + 1 where id = ?", 1)
+	ret5, _ := tx.Exec("update users set age = age - 1 where id = ?", 2)
+	//
+	////如果id不存在,受影响行数则为0
+	////接收影响行数，为0则失败
+	updNums1, _ := ret4.RowsAffected()
+	updNums2, _ := ret5.RowsAffected()
+	if updNums1 > 0 && updNums2 > 0 { //只有两条更新同时成功，那么才提交
+		tx.Commit() //提交事务
+		fmt.Println("Success")
+	} else { //否则回滚
+		tx.Rollback() //回退事务
+		fmt.Println("Fail")
+	}
+}
